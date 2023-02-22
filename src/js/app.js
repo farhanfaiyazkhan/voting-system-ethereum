@@ -15,8 +15,18 @@ App = {
     if (typeof web3 !== 'undefined') {
       // If a web3 instance is already provided by Meta Mask.
       // Metamask is a chrome extension that allows you to connect to the blockchain
+      const ethEnabled = () => {
+        if(window.ethereum) {
+          window.web3 = new Web3(window.ethereum);
+          return true;
+        }
+        return false;
+      }
+      if (!ethEnabled()) {
+        alert("Install Ethereum-compatible browser or extension like meta-mask.");
+      }
+      web3 = window.web3;
       App.web3Provider = web3.currentProvider;
-      web3 = new Web3(web3.currentProvider);
     } else {
       // Specify default instance if no web3 instance provided
       // This is the local blockchain that we are going to use for development
@@ -36,12 +46,33 @@ App = {
       App.contracts.Election.setProvider(App.web3Provider);
 
       App.listenForEvents();
-
       return App.render();
     });
   },
 
-  render: function() {
+  // Listen for events emitted from the contract
+  listenForEvents: function () {
+    App.contracts.Election.deployed().then(function (instance) {
+      // Restart Chrome if you are unable to receive this event
+      // This is a known issue with Metamask
+      // https://github.com/MetaMask/metamask-extension/issues/2393
+      instance
+        .votedEvent(
+          {},
+          {
+            fromBlock: 0,
+            toBlock: 'latest',
+          }
+        )
+        .watch(function (error, event) {
+          console.log('event triggered', event);
+          // Reload when a new vote is recorded
+          App.render();
+        });
+    });
+  },
+
+  render: async () => {
     var electionInstance;
     var loader = $("#loader");
     var content = $("#content");
@@ -52,38 +83,73 @@ App = {
 
     // Load account data
     // getCoinbase will get the account that is currently logged in
-    web3.eth.getCoinbase(function(err, account) {
-      if (err === null) {
-        App.account = account;
-        $("#accountAddress").html("Your Account: " + account);
+    try {
+      const accounts = await window.ethereum.request({
+        method: 'eth_requestAccounts',
+      });
+      App.account = accounts[0];
+      $("#accountAddress").html("Your Account: " + App.account);
+    } catch (error) {
+      if(error.code === 4001) {
+        // User rejected request
       }
-    });
+      console.log(error);
+    }
 
     // Load contract data
     // List out the candidates and the number of votes that they have.
     App.contracts.Election.deployed().then(function(instance) {
       electionInstance = instance;
       return electionInstance.candidatesCount();
-    }).then(function(candidatesCount) {
+    }).then(async (candidatesCount) => {
+      const promise = [];
+      for( var i =1; i <= candidatesCount; i++) {
+        promise.push(electionInstance.candidates(i));
+      }
+
+      const candidates = await Promise.all(promise);
       var candidatesResults = $("#candidatesResults");
       candidatesResults.empty();
 
+      var candidatesSelect = $("#candidatesSelect");
+      candidatesSelect.empty();
+
       for (var i = 1; i <= candidatesCount; i++) {
-        electionInstance.candidates(i).then(function(candidate) {
-          var id = candidate[0];
-          var name = candidate[1];
-          var voteCount = candidate[2];
+          var id = candidates[i][0];
+          var name = candidates[i][1];
+          var voteCount = candidates[i][2];
 
           // Render candidate Result
           var candidateTemplate = "<tr><th>" + id + "</th><td>" + name + "</td><td>" + voteCount + "</td></tr>"
           candidatesResults.append(candidateTemplate);
-        });
-      }
-      
-      loader.hide();
-      content.show();
-    }).catch(function(error) {
-      console.warn(error);
+
+          // Render candidate ballot option
+          var candidateOption = "<option value='" + id + "'>" + name + "</option>";
+          candidatesSelect.append(candidateOption);
+        }
+        return electionInstance.voters(App.accounts);
+      }).then(function(hasVoted) {
+        // Do not allow a user to vote.
+        if(hasVoted) {
+          $("form").hide();
+        }
+        loader.hide();
+        content.show();
+      }).catch(function(error) {
+      console.error(error);
+    });
+  },
+
+  castVote: function () {
+    var candidateId = $("candidatesSelect").val();
+    App.contracts.Election.deployed().then(function (instance) {
+      return instance.vote(candidateId, {from: App.account});
+    }).then(function (result) {
+      // Wait for votes to update
+      $("#content").hide();
+      $("#loader").show();
+    }).catch(function (err) {
+      console.error(err);
     });
   }
 };

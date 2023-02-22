@@ -5,9 +5,9 @@ contract Election {
 
     // Model a Candidate
     struct Candidate {
-        uint id;
+        uint256 id;
         string name;
-        uint voteCount;
+        uint256 voteCount;
     }
 
     // Store accounts that have voted
@@ -15,14 +15,14 @@ contract Election {
 
     // Store candidates
     // Fetch candidates
-    mapping(uint => Candidate) public candidates;
+    mapping(uint256 => Candidate) public candidates;
 
     // Store candidates count
 
-    uint public candidatesCount; // default for uint = 0
+    uint256 public candidatesCount; // default for uint256 = 0
 
     event votedEvent(
-        uint indexed _candidateId
+        uint256 indexed _candidateId
     );
 
     function addCandidate(string memory _name) private { //_name is a local variable
@@ -35,7 +35,7 @@ contract Election {
         addCandidate("Candidate 2");
     }
 
-    function vote (uint _candidateId) public { // this function will create a transaction.
+    function vote (uint256 _candidateId) public { // this function will create a transaction.
 
         // require that they haven't voted before
         require(!voters[msg.sender]); // require that msg.sender address is not in voters mapping
